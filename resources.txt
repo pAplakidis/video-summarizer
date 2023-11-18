@@ -1,0 +1,9 @@
+- Papers
+
+- Articles
+Advanced Key Frame Extraction from Video [ https://varunmittal50.medium.com/advanced-key-frame-extraction-from-video-cf1c715db2d3 ]
+
+- Code
+
+- Videos
+Video Summarization using cv2 | P1 | ISP Solutions Official [ https://www.youtube.com/watch?v=5eqkjdty20g&ab_channel=ISPSolutionsOfficial ]
