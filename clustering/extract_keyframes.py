@@ -4,13 +4,15 @@ import cv2
 import h5py
 import numpy as np
 import imutils
+from tqdm import trange
+
 from sklearn.neighbors import KNeighborsClassifier
+from sklearn.cluster import KMeans
 import hdbscan
+from hdbscan import flat
 
 W = H = 224   # 32
 disp_W, disp_H = 1920//2, 1080//2
-
-THRESH = 20.
 
 
 class Dataset:
@@ -18,12 +20,18 @@ class Dataset:
     self.video_path = video_path
     self.video_name = video_path.split('/')[-1].split('.')[0]
     self.hdf = h5py.File("../data/eccv16_dataset_summe_google_pool5.h5", 'r')
+    # TODO: dynamically get video index from video name
+    self.video_idx = "video_1"  # CHANGE THIS
 
+    # prepare frames and features
     self.frames = []
     self.frames_reduced = []
-    self.feats = np.array(self.hdf["video_1" + "/features"])  # TODO: dynamically get video index from video name
+    self.feats = np.array(self.hdf[self.video_idx + "/features"])
+
+    self.ground_truth_frames = []
 
   # read video file
+  # TODO: add trange
   def load_video_frames(self):
     cap = cv2.VideoCapture(self.video_path)
     i = 0
@@ -39,6 +47,24 @@ class Dataset:
     cap.release()
     return self.frames
 
+  def get_ground_truth(self):
+    self.ground_truth_idxs = np.array(self.hdf[self.video_idx + "/gtsummary"])
+    self.ground_truth_frames = []
+    for idx, f in enumerate(self.frames_reduced):
+      if self.ground_truth_idxs[idx] == 1.:
+        #self.ground_truth_frames.append(f)
+        self.ground_truth_frames.append(idx)
+
+    self.ground_truth_frames = np.array(self.ground_truth_frames)
+    self.ground_truth_nclusters = self.ground_truth_frames.shape[0]
+    print("Number of frames in Ground Truth Summary:", self.ground_truth_nclusters)
+
+    # display ground-truth
+    # for f in self.ground_truth_frames:
+    #   cv2.imshow("ground-truth keyframe", f)
+    #   cv2.waitKey(0)
+    # cv2.destroyAllWindows()
+
   # get frames based on difference
   def extract_candidate_frames(self, threshold=20.):
     ret = []
@@ -47,7 +73,7 @@ class Dataset:
       if np.sum(np.absolute(self.frames[i] - self.frames[i-1]))/np.size(self.frames[i]) > threshold:
         ret.append(self.frames[i])
 
-    print("Number of candidate frames %d/%d"%(len(ret), len(self.frames)))
+    print("[+] Number of candidate frames %d/%d"%(len(ret), len(self.frames)))
     return ret
 
   # get an image from video every 15 frames
@@ -56,8 +82,7 @@ class Dataset:
       if i % 15 == 0:
         self.frames_reduced.append(f)
 
-
-    print("Number of candidate frames %d/%d"%(len(self.frames_reduced), len(self.frames)))
+    print("[+] Number of candidate frames %d/%d"%(len(self.frames_reduced), len(self.frames)))
     return self.frames_reduced
 
   # simply downscale and flatten image
@@ -78,12 +103,18 @@ class Dataset:
     return hist.flatten()
 
 
-def cluster(feats):
+def cluster(data):
   print("Clustering ...")
-  Hdbascan = hdbscan.HDBSCAN(min_cluster_size=2,metric='manhattan').fit(feats)
-  labels = np.add(Hdbascan.labels_, 1)
-  n_clusters = len(np.unique(Hdbascan.labels_))
-  print(n_clusters, "clusters generated")
+  clusterer = hdbscan.HDBSCAN(min_cluster_size=2,metric='manhattan').fit(data.feats)
+
+  # clusterer = flat.HDBSCAN_flat(data.feats, data.ground_truth_nclusters, prediction_data=True)
+  # flat.approximate_predict_flat(clusterer, data.feats, data.ground_truth_nclusters)
+  
+  # clusterer = KMeans(n_clusters=data.ground_truth_nclusters).fit(data.feats)  # TODO: first cluster is always empty
+
+  labels = np.add(clusterer.labels_, 1)
+  n_clusters = len(np.unique(clusterer.labels_))
+  print("[+]", n_clusters, "clusters generated")
 
   # get each cluster's images' indices
   clusters_idx_array = []
@@ -120,9 +151,21 @@ def extract_keyframes(dataset, cluster_idx_array):
     try:
       ret.append(curr_row[np.argmax(laplacian_scores)])
     except:
-      break
+      # TODO: find a random orphaned image idx and add it here (?)
+      ret.append(0) # since the first cluster is always empty, just add the first frame
 
   return ret
+
+# TODO: user summaries?
+# takes onehot encoded vectors of size=len(frames_reduced) from predictions and ground-truth
+# and evaluates them using F1 score
+def evalutate_summary(pred_keyframes, gt_keyframes):
+  matches = pred_keyframes & gt_keyframes
+  precision = sum(matches) / sum(pred_keyframes)
+  recall = sum(matches) / sum(gt_keyframes)
+  f1_score = 2 * precision * recall * 100 / (precision + recall)
+  return f1_score
+
 
 if __name__ == "__main__":
   video_path = "../data/SumMe/videos/Air_Force_One.mp4"
@@ -130,15 +173,15 @@ if __name__ == "__main__":
 
   # load and prepare data
   data = Dataset(video_path)
-  data.load_video_frames()
-  loader = Dataset(video_path)
   out_path = f"../data/OUT/{data.video_name}"
+  data.load_video_frames()
 
   # video => candidate frames
   data.reduce_frames()
+  data.get_ground_truth()
 
   # candidate frames => clusters of candidate frames
-  cluster_idx_array = cluster(data.feats)
+  cluster_idx_array = cluster(data)
 
   # clusters of candidate frames => final key frames
   keyframes = extract_keyframes(data, cluster_idx_array)
@@ -147,15 +190,28 @@ if __name__ == "__main__":
   if not os.path.exists(out_path):
     os.makedirs(out_path)
 
-  # TODO: check if RGB is correct
   for i in sorted(keyframes):
     print("Writing frame:", i)
-    cv2.imwrite(out_path+f"/{i}.jpg", data.frames[i])
-    cv2.imshow("keyframe", data.frames_reduced[i])
+    frame = cv2.cvtColor(data.frames_reduced[i], cv2.COLOR_BGR2RGB)
+    cv2.imwrite(out_path+f"/{i}.jpg", frame)
+    cv2.imshow("predicted keyframe", frame)
     cv2.waitKey(0)
-  print("Frames saved at", out_path)
+  print("[+] Frames saved at", out_path)
 
-  # TODO: score metrics => compare to ground-truth
+  for i in data.ground_truth_frames:
+    print("Writing frame:", i)
+    frame = cv2.cvtColor(data.frames_reduced[i], cv2.COLOR_BGR2RGB)
+    cv2.imshow("ground-truth keyframe", frame)
+    cv2.waitKey(0)
 
-  # cv2.destroyAllWindows()
+  keyframes_onehot = np.zeros((len(data.frames_reduced)), dtype=int)
+  for kf in keyframes:
+    keyframes_onehot[kf] = 1.
+
+  print("[+] Predicted Summary has %d keyframes"%len(keyframes))
+  print("[+] Ground-Truth Summary has %d keyframes"%data.ground_truth_frames.shape[0])
+  f1_score = evalutate_summary(keyframes_onehot, data.ground_truth_idxs.astype(int))
+  print("[+] F1_score:", f1_score, "%")
+
+  cv2.destroyAllWindows()
   data.hdf.close()
