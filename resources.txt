@@ -1,4 +1,7 @@
 - Papers
+* Unsupervised Video Summarization with Adversarial LSTM Networks
+* Unsupervised Video Summarization via Attention-Driven Adversarial Learning
+
 
 - Articles
 Advanced Key Frame Extraction from Video [ https://varunmittal50.medium.com/advanced-key-frame-extraction-from-video-cf1c715db2d3 ]

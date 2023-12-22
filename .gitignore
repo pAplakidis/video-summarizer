@@ -1,3 +1,7 @@
 .*.swp
 data/
 
+sum-gan-aae/models
+sum-gan-aae/__pycache__
+sum-gan-aae/runs/
+

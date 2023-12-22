@@ -156,6 +156,7 @@ def extract_keyframes(dataset, cluster_idx_array):
 
   return ret
 
+# TODO: calculate IoU as well
 # TODO: user summaries?
 # takes onehot encoded vectors of size=len(frames_reduced) from predictions and ground-truth
 # and evaluates them using F1 score
@@ -168,6 +169,7 @@ def evalutate_summary(pred_keyframes, gt_keyframes):
 
 
 if __name__ == "__main__":
+  # TODO: make this a for loop for each video
   video_path = "../data/SumMe/videos/Air_Force_One.mp4"
   # video_path = "../data/SumMe/videos/Base jumping.mp4"
 
