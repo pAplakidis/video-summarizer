@@ -11,6 +11,7 @@ NUM_LAYERS = 2
 SUMMARY_RATE = 0.3
 CLIP = 5.0
 DISCRIMINATOR_SLOW_START = 15
+THRESHOLD = 0.3
 
 
 class TensorboardWriter(SummaryWriter):

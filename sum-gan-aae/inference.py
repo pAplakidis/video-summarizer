@@ -2,6 +2,7 @@
 import os
 import cv2
 import numpy as np
+from tqdm import tqdm
 import h5py
 import torch
 
@@ -12,6 +13,9 @@ from util import *
 base_dir = "../data/"
 video_idx = 0
 model_path = "./models/SUM-GAN-VAE.pth"
+
+disp_W = 1920 // 2
+disp_H = 1080 // 2
 
 
 class SumGanVaeSummarizer:
@@ -48,7 +52,9 @@ class SumGanVaeSummarizer:
   def extract_summary(self, img_feats):
     img_feats = self.linear_compress(img_feats.to(device).detach()).unsqueeze(1)
     scores = self.summarizer.s_lstm(img_feats).squeeze(1).detach().cpu().numpy()
-    pred_keyframes = np.round(scores)  # TODO: use a threshold
+    pred_keyframes = (scores >= THRESHOLD).astype(int)
+    # pred_keyframes = np.round(scores)
+
     return pred_keyframes
 
   def show_summaries(self, pred_keyframes, gt_keyframes, video_name):
@@ -59,28 +65,38 @@ class SumGanVaeSummarizer:
     # load frames into memory
     cap = cv2.VideoCapture(video_path)
     idx = 0
+    pbar = tqdm(int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) + 1)
     while True:
-      print(f"Processing frame {idx+1}/{int(cap.get(cv2.CAP_PROP_FRAME_COUNT))}")
+      pbar.set_description(f"Processing frame {idx+1}/{int(cap.get(cv2.CAP_PROP_FRAME_COUNT))}")
       ret, frame = cap.read()
       if not ret:
         break
 
-      # FIXME: video is frozen
-      # frame = cv2.resize(frame, (W,H))
+      frame = cv2.resize(frame, (disp_W, disp_H))
       try:
         if pred_keyframes[idx] == 1:
-          # pred_frames.append(frame)
-          cv2.imshow("Model Summary", frame)
+          pred_frames.append(frame)
         if gt_keyframes[idx] == 1:
-          # gt_frames.append(frame)
-          cv2.imshow("Ground-Truth Summary", frame)
-        cv2.waitKey(1)
+          gt_frames.append(frame)
       except IndexError:
         pass
       idx += 1
-
+      pbar.update(1)
+    pbar.close()
     cap.release()
-    cv2.destroyAllWindows()
+
+    # FIXME: getting wrong ground-truth summary
+    print(len(pred_frames))
+    print(len(gt_frames))
+    for idx, frame in enumerate(pred_frames):
+      cv2.imshow(f"Model Summary - {idx}", frame)
+      cv2.waitKey(0)
+      cv2.destroyAllWindows()
+
+    for idx, frame in enumerate(gt_frames):
+      cv2.imshow(f"Ground-Truth Summary - {idx}", frame)
+      cv2.waitKey(0)
+      cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
@@ -101,4 +117,5 @@ if __name__ == "__main__":
   print(summarizer.model)
 
   pred_keyframes = summarizer.extract_summary(img_feats)
+  print(pred_keyframes)
   summarizer.show_summaries(pred_keyframes, gt_summary, video_name)
