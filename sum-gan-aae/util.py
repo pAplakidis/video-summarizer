@@ -3,7 +3,7 @@ import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 
 W, H = 224, 224
-N_EPOCHS = 100
+N_EPOCHS = 300
 LR = 1e-4
 INPUT_SIZE = 1024
 HIDDEN_SIZE = 500

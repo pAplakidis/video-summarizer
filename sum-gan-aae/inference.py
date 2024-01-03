@@ -60,9 +60,9 @@ class SumGanVaeSummarizer:
   def show_summaries(self, pred_keyframes, gt_keyframes, video_name):
     video_path = self.video_dir + video_name + ".mp4"
     print(video_path)
-    pred_frames, gt_frames = [], []
+    reduced_frames, pred_frames, gt_frames = [], [], []
     
-    # load frames into memory
+    # load (and reduce) frames into memory
     cap = cv2.VideoCapture(video_path)
     idx = 0
     pbar = tqdm(int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) + 1)
@@ -72,31 +72,33 @@ class SumGanVaeSummarizer:
       if not ret:
         break
 
-      frame = cv2.resize(frame, (disp_W, disp_H))
-      try:
-        if pred_keyframes[idx] == 1:
-          pred_frames.append(frame)
-        if gt_keyframes[idx] == 1:
-          gt_frames.append(frame)
-      except IndexError:
-        pass
+      if idx % 15 == 0:
+        frame = cv2.resize(frame, (disp_W, disp_H))
+        reduced_frames.append(frame)
+
       idx += 1
       pbar.update(1)
     pbar.close()
     cap.release()
 
-    # FIXME: getting wrong ground-truth summary
-    print(len(pred_frames))
-    print(len(gt_frames))
+    # frame idxs => frames
+    for idx, frame in enumerate(reduced_frames):
+      if pred_keyframes[idx] == 1:
+        pred_frames.append(frame)
+      if gt_keyframes[idx] == 1:
+        gt_frames.append(frame)
+
+    print("Number of frames in predicted summary:", len(pred_frames))
+    print("Number of frames in ground-truth summary:", len(gt_frames))
     for idx, frame in enumerate(pred_frames):
-      cv2.imshow(f"Model Summary - {idx}", frame)
+      cv2.imshow("Model Summary", frame)
       cv2.waitKey(0)
-      cv2.destroyAllWindows()
+    cv2.destroyAllWindows()
 
     for idx, frame in enumerate(gt_frames):
-      cv2.imshow(f"Ground-Truth Summary - {idx}", frame)
+      cv2.imshow("Ground-Truth Summary", frame)
       cv2.waitKey(0)
-      cv2.destroyAllWindows()
+    cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
@@ -117,5 +119,6 @@ if __name__ == "__main__":
   print(summarizer.model)
 
   pred_keyframes = summarizer.extract_summary(img_feats)
+  print("Model-Predicted Summary:")
   print(pred_keyframes)
   summarizer.show_summaries(pred_keyframes, gt_summary, video_name)
