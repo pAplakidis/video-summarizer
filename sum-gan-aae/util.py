@@ -1,3 +1,5 @@
+import cv2
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
@@ -77,3 +79,12 @@ class StackedLSTMCell(nn.Module):
 
     return last_h_c, h_c_list
 
+def get_laplacian_scores(frames):
+  variance_laplacians = []
+
+  for f in frames:
+    f = cv2.cvtColor(f, cv2.COLOR_RGB2GRAY)
+    variance_laplacian = cv2.Laplacian(f, cv2.CV_64F).var()
+    variance_laplacians.append(variance_laplacian)
+
+  return variance_laplacians

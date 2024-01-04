@@ -116,7 +116,7 @@ class Trainer:
     pred_frames, gt_frames = [], []
     return np.mean(iou)
 
-  def train(self, epochs=N_EPOCHS, lr=LR):
+  def train(self, epochs=N_EPOCHS, lr=LR, dLR=1e-5):
     self.s_e_optimizer = optim.Adam(
       list(self.summarizer.s_lstm.parameters()) +
       list(self.summarizer.vae.e_lstm.parameters()) +
@@ -131,7 +131,7 @@ class Trainer:
     self.c_optimizer = optim.Adam(
       list(self.discriminator.parameters()) +
       list(self.linear_compress.parameters()),
-      lr=lr
+      lr=dLR
     )
 
     print("Training ...")
@@ -278,7 +278,7 @@ class Trainer:
 
       img_feats = self.linear_compress(img_feats.detach()).unsqueeze(1)
       scores = self.summarizer.s_lstm(img_feats).squeeze(1).detach().cpu().numpy()
-      pred_scores = np.round(scores)  # TODO: use a threshold
+      pred_scores = np.round(scores)  # TODO: use a better keyframe selection
 
       # t.write(f"{pred_scores.astype(int)}")
       # t.write(f"{gt_summary.astype(int)}")
