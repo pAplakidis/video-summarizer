@@ -4,6 +4,8 @@ import cv2
 import numpy as np
 from tqdm import tqdm
 import h5py
+
+import hdbscan
 import torch
 
 from model import *
@@ -60,7 +62,7 @@ class SumGanVaeSummarizer:
 
     return pred_keyframes
 
-  def show_summaries(self, pred_keyframes, gt_keyframes, video_name):
+  def show_summaries(self, pred_keyframes, gt_keyframes, img_feats, video_name, use_clustering=True):
     video_path = self.video_dir + video_name + ".mp4"
     print(video_path)
     reduced_frames, pred_frames, gt_frames = [], [], []
@@ -85,19 +87,69 @@ class SumGanVaeSummarizer:
     cap.release()
 
     # predicted intervals => keyframes
-    tmp_frames = []
-    pred_keyframe_idxs = np.zeros_like(pred_keyframes)
-    for idx, frame in enumerate(reduced_frames):
-      if pred_keyframes[idx] == 1:
-        tmp_frames.append(frame)
-      elif pred_keyframes[idx] == 0 and len(tmp_frames) > 0:
-        if len(tmp_frames) == 1:
-          pred_keyframe_idxs[idx-1] = 1
-        else:
-          laplacian_scores = get_laplacian_scores(tmp_frames)
-          max_idx = np.argmax(laplacian_scores)
-          pred_keyframe_idxs[idx - len(tmp_frames) + max_idx] = 1
-        tmp_frames = []
+    if use_clustering:
+      # we cluster within each interval to determine shot changes, big differences between frames, etc, if any
+      # NOTE: alternatively, we could use shot_change from the dataset and do it manually
+      print("Clustering ...")
+      print()
+      idxs = []
+      tmp_frames = []
+      pred_keyframe_idxs = np.zeros_like(pred_keyframes)
+
+      for idx, frame in enumerate(reduced_frames):
+        if pred_keyframes[idx] == 1:
+          idxs.append(idx)
+          tmp_frames.append(frame)
+        elif pred_keyframes[idx] == 0 and len(tmp_frames) > 0:
+          if len(tmp_frames) == 1:
+            pred_keyframe_idxs[idx-1] = 1
+          else:
+            feats = []
+            for i in idxs:
+              feats.append(img_feats[i])
+
+            # cluster interval
+            clusterer = hdbscan.HDBSCAN(min_cluster_size=2,metric='manhattan').fit(feats)
+            labels = np.add(clusterer.labels_, 1)
+            n_clusters = len(np.unique(clusterer.labels_))
+            if n_clusters > 1:
+              print("[+]", n_clusters, "clusters/possible shot changes detected at interval starting at index:", idx - len(tmp_frames))
+
+            # get each cluster's images' indices
+            clusters_idx_array = []
+            for i in np.arange(n_clusters):
+              idx_array = np.where(labels == i)
+              clusters_idx_array.append(idx_array)
+
+            clusters_idx_array = np.array(clusters_idx_array)
+            print(clusters_idx_array)
+            clusters = np.arange(len(clusters_idx_array))
+            for cluster in clusters:
+              curr_row = clusters_idx_array[cluster][0]
+              print(curr_row)
+              cluster_frames = []
+              for c in curr_row:
+                cluster_frames.append(tmp_frames[c])
+              laplacian_scores = get_laplacian_scores(cluster_frames)
+              interval_idx = curr_row[curr_row[np.argmax(laplacian_scores)]]
+              pred_keyframe_idxs[idx - len(tmp_frames) + interval_idx] = 1
+
+          idxs = []
+          tmp_frames = []
+    else:
+      tmp_frames = []
+      pred_keyframe_idxs = np.zeros_like(pred_keyframes)
+      for idx, frame in enumerate(reduced_frames):
+        if pred_keyframes[idx] == 1:
+          tmp_frames.append(frame)
+        elif pred_keyframes[idx] == 0 and len(tmp_frames) > 0:
+          if len(tmp_frames) == 1:
+            pred_keyframe_idxs[idx-1] = 1
+          else:
+            laplacian_scores = get_laplacian_scores(tmp_frames)
+            max_idx = np.argmax(laplacian_scores)
+            pred_keyframe_idxs[idx - len(tmp_frames) + max_idx] = 1
+          tmp_frames = []
     print("After processing intervals:")
     print(pred_keyframe_idxs)
     print("Ground-Truth Indices:")
@@ -151,8 +203,8 @@ def IoU(pred_frames, gt_frames):
   return np.mean(iou)
 
 def evaluate(pred_idxs, gt_idxs, pred_keyframes, gt_keyframes):
-  print("F1 score:", f1_score(pred_idxs, gt_idxs))
-  print("IoU score:", IoU(pred_keyframes, gt_keyframes))
+  print("F1 score:", f1_score(pred_idxs, gt_idxs), "%")
+  print("IoU score:", IoU(pred_keyframes, gt_keyframes), "%")
 
 
 if __name__ == "__main__":
@@ -174,7 +226,7 @@ if __name__ == "__main__":
   pred_keyframes = summarizer.extract_summary(img_feats)
   print("Model-Predicted Summary:")
   print(pred_keyframes)
-  pred_keyframe_idxs, gt_keyframes, pred_frames, gt_frames = summarizer.show_summaries(pred_keyframes, gt_summary, video_name)
+  pred_keyframe_idxs, gt_keyframes, pred_frames, gt_frames = summarizer.show_summaries(pred_keyframes, gt_summary, img_feats.detach().cpu().numpy(), video_name)#, use_clustering=False)
 
-  # TODO: evaluate using fscore and IoU
+  # TODO: also evaluate to compare with paper (ensure training is done well)
   evaluate(pred_keyframe_idxs, gt_keyframes.detach().cpu().numpy().astype(int), np.array(pred_frames), np.array(gt_frames))

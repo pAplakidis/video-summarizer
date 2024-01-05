@@ -156,20 +156,62 @@ def extract_keyframes(dataset, cluster_idx_array):
 
   return ret
 
-# TODO: calculate IoU as well
-# TODO: user summaries?
-# takes onehot encoded vectors of size=len(frames_reduced) from predictions and ground-truth
-# and evaluates them using F1 score
-def evalutate_summary(pred_keyframes, gt_keyframes):
+def f1_score(pred_keyframes, gt_keyframes):
   matches = pred_keyframes & gt_keyframes
   precision = sum(matches) / sum(pred_keyframes)
   recall = sum(matches) / sum(gt_keyframes)
-  f1_score = 2 * precision * recall * 100 / (precision + recall)
-  return f1_score
+  f1score = 2 * precision * recall * 100 / (precision + recall)
+  return f1score
+
+def IoU(pred_keyframes, gt_keyframes, video_path):
+  pred_frames, gt_frames = [], []
+  
+  # load frames into memory
+  cap = cv2.VideoCapture(video_path)
+  idx = 0
+  while True:
+    ret, frame = cap.read()
+    if not ret:
+      break
+
+    frame = cv2.resize(frame, (W,H))
+    try:
+      if pred_keyframes[idx] == 1:
+        pred_frames.append(frame)
+      if gt_keyframes[idx] == 1:
+        gt_frames.append(frame)
+    except IndexError:
+      pass
+    idx += 1
+
+  if len(pred_frames) == 0:
+    pred_frames, gt_frames = [], []
+    return 0.0
+
+  pred_frames = np.array(pred_frames)
+  gt_frames = np.array(gt_frames)
+  pred_frames = pred_frames.reshape(-1, W * H * 3)
+  gt_frames = gt_frames.reshape(-1, W * H * 3)
+
+  # calculate IoU
+  intersection = np.sum(np.logical_and(pred_frames[:, None, :], gt_frames), axis=(1, 2))
+  union = np.sum(np.logical_or(pred_frames[:, None, :], gt_frames), axis=(1, 2))
+  iou = intersection / union
+
+  # clear memory
+  pred_frames, gt_frames = [], []
+  return np.mean(iou)
+
+# TODO: user summaries?
+# takes onehot encoded vectors of size=len(frames_reduced) from predictions and ground-truth
+# and evaluates them using F1 score
+def evaluate_summary(pred_keyframes, gt_keyframes, video_path):
+  f1score = f1_score(pred_keyframes, gt_keyframes)
+  iou = IoU(pred_keyframes, gt_keyframes, video_path)
+  return f1score, iou
 
 
 if __name__ == "__main__":
-  # TODO: make this a for loop for each video
   video_path = "../data/SumMe/videos/Air_Force_One.mp4"
   # video_path = "../data/SumMe/videos/Base jumping.mp4"
 
@@ -212,8 +254,9 @@ if __name__ == "__main__":
 
   print("[+] Predicted Summary has %d keyframes"%len(keyframes))
   print("[+] Ground-Truth Summary has %d keyframes"%data.ground_truth_frames.shape[0])
-  f1_score = evalutate_summary(keyframes_onehot, data.ground_truth_idxs.astype(int))
-  print("[+] F1_score:", f1_score, "%")
+  f1score, iou = evaluate_summary(keyframes_onehot, data.ground_truth_idxs.astype(int), video_path)
+  print("[+] F1_score:", f1score, "%")
+  print("[+] IoU score:", iou, "%")
 
   cv2.destroyAllWindows()
   data.hdf.close()
