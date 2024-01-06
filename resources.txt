@@ -1,12 +1,11 @@
 - Papers
-* Unsupervised Video Summarization with Adversarial LSTM Networks
-* Unsupervised Video Summarization via Attention-Driven Adversarial Learning
-
+* Unsupervised Video Summarization with Adversarial LSTM Networks (+ referenced papers)
 
 - Articles
 Advanced Key Frame Extraction from Video [ https://varunmittal50.medium.com/advanced-key-frame-extraction-from-video-cf1c715db2d3 ]
 
 - Code
+Adversarial Video Summary [ https://github.com/j-min/Adversarial_Video_Summary ]
 
 - Videos
 Video Summarization using cv2 | P1 | ISP Solutions Official [ https://www.youtube.com/watch?v=5eqkjdty20g&ab_channel=ISPSolutionsOfficial ]
