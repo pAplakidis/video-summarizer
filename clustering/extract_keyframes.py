@@ -268,8 +268,8 @@ def run(verbose=True):
   for kf in keyframes:
     keyframes_onehot[kf] = 1.
 
-  print("[+] Predicted Summary has %d keyframes"%len(keyframes))
-  print("[+] Ground-Truth Summary has %d keyframes"%data.ground_truth_frames.shape[0])
+  print("[+] Predicted Summary has %d / %d(%d) keyframes"%(len(keyframes), len(data.frames_reduced), len(data.frames)))
+  print("[+] Ground-Truth Summary has %d / %d(%d) keyframes"%(data.ground_truth_frames.shape[0], len(data.frames_reduced), len(data.frames)))
   f1score, iou = evaluate_summary(keyframes_onehot, data.ground_truth_idxs.astype(int), data.video_path)
   print("[+] F1_score:", f1score, "%")
   print("[+] IoU score:", iou, "%")

@@ -15,6 +15,7 @@ from util import *
 video_idx = int(os.getenv("VIDEO_IDX"))
 if video_idx is None:
   video_idx = 0
+# FIXME: cannot leave it at None
 verbose = bool(int(os.getenv("VERBOSE")))
 if verbose is None:
   verbose = True
@@ -66,9 +67,9 @@ class SumGanVaeSummarizer:
     # pred_keyframes = (scores >= THRESHOLD).astype(int)
     pred_keyframes = (scores > np.mean(scores)).astype(int)
 
-    return pred_keyframes
+    return pred_keyframes, scores
 
-  def generate_summaries(self, pred_keyframes, gt_keyframes, img_feats, video_name, use_clustering=False, show_summaries=True, verbose=True):
+  def generate_summaries(self, scores, pred_keyframes, gt_keyframes, img_feats, video_name, use_clustering=False, show_summaries=True, verbose=True, use_laplacian=False):
     video_path = self.video_dir + video_name + ".mp4"
     reduced_frames, pred_frames, gt_frames = [], [], []
     
@@ -76,8 +77,9 @@ class SumGanVaeSummarizer:
     cap = cv2.VideoCapture(video_path)
     idx = 0
     pbar = tqdm(int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) + 1)
+    video_length = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     while True:
-      pbar.set_description(f"Processing frame {idx+1}/{int(cap.get(cv2.CAP_PROP_FRAME_COUNT))}")
+      pbar.set_description(f"Processing frame {idx+1}/{video_length}")
       ret, frame = cap.read()
       if not ret:
         break
@@ -94,7 +96,6 @@ class SumGanVaeSummarizer:
     # TODO: use temporal segmentation on video
     # calculate the average model score on each segment
     # get the top-score segments so that we get 15% of the video
-    # get max model score (or laplacian) as the keyframe of the segment/interval
 
     # predicted intervals => keyframes
     if use_clustering:
@@ -153,8 +154,14 @@ class SumGanVaeSummarizer:
           if len(tmp_frames) == 1:
             pred_keyframe_idxs[idx-1] = 1
           else:
-            laplacian_scores = get_laplacian_scores(tmp_frames)
-            max_idx = np.argmax(laplacian_scores)
+            if use_laplacian:
+              # get laplacian scores from original frames
+              laplacian_scores = get_laplacian_scores(tmp_frames)
+              max_idx = np.argmax(laplacian_scores)
+            else:
+              # get scores from model prediction
+              tmp_scores = scores[idx-len(tmp_frames):idx]
+              max_idx = np.argmax(tmp_scores)
             pred_keyframe_idxs[idx - len(tmp_frames) + max_idx] = 1
           tmp_frames = []
     if verbose:
@@ -170,8 +177,8 @@ class SumGanVaeSummarizer:
       if gt_keyframes[idx] == 1:
         gt_frames.append(frame)
 
-    print("Number of frames in predicted summary:", len(pred_frames))
-    print("Number of frames in ground-truth summary:", len(gt_frames))
+    print(f"Number of frames in predicted summary: {len(pred_frames)} / {len(reduced_frames)}({video_length})")
+    print(f"Number of frames in ground-truth summary: {len(gt_frames)} / {len(reduced_frames)}({video_length})")
 
     if show_summaries:
       for frame in pred_frames:
@@ -237,13 +244,12 @@ def inference(verbose=True):
   if verbose:
     print(summarizer.model)
 
-  pred_keyframes = summarizer.extract_summary(img_feats)
+  pred_keyframes, scores = summarizer.extract_summary(img_feats)
   if verbose:
     print("Model-Predicted Summary:")
     print(pred_keyframes)
-  pred_keyframe_idxs, gt_keyframes, pred_frames, gt_frames = summarizer.generate_summaries(pred_keyframes, gt_summary, img_feats.detach().cpu().numpy(), video_name, show_summaries=False, verbose=verbose)
+  pred_keyframe_idxs, gt_keyframes, pred_frames, gt_frames = summarizer.generate_summaries(scores, pred_keyframes, gt_summary, img_feats.detach().cpu().numpy(), video_name, show_summaries=False, verbose=verbose)
 
-  # TODO: also evaluate to compare with paper (ensure training is done well)
   evaluate(pred_keyframe_idxs, gt_keyframes.detach().cpu().numpy().astype(int), np.array(pred_frames), np.array(gt_frames))
 
 
