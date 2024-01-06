@@ -4,24 +4,36 @@ import cv2
 import h5py
 import numpy as np
 import imutils
-from tqdm import trange
+from tqdm import trange, tqdm
 
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.cluster import KMeans
 import hdbscan
 from hdbscan import flat
 
+# EXAMPLE USAGE: VIDEO_IDX=2 VERBOSE=0 ./extract_keyframes.py
+video_idx = int(os.getenv("VIDEO_IDX"))
+if video_idx is None:
+  video_idx = 0
+verbose = bool(int(os.getenv("VERBOSE")))
+if verbose is None:
+  verbose = True
+
+show_summaries = False #True
+base_dir = "../data/"
+
 W = H = 224   # 32
 disp_W, disp_H = 1920//2, 1080//2
 
 
 class Dataset:
-  def __init__(self, video_path):
-    self.video_path = video_path
-    self.video_name = video_path.split('/')[-1].split('.')[0]
+  def __init__(self, base_dir, video_idx):
+    self.video_dir = base_dir + "SumMe/videos/"
     self.hdf = h5py.File("../data/eccv16_dataset_summe_google_pool5.h5", 'r')
-    # TODO: dynamically get video index from video name
-    self.video_idx = "video_1"  # CHANGE THIS
+    self.video_idx = f"video_{video_idx + 1}"
+    self.video_name = str(np.array(self.hdf[f"{self.video_idx}/video_name"]))[1:].replace("\'", "")
+    print("Processing video:", self.video_name)
+    self.video_path = self.video_dir + self.video_name + ".mp4"
 
     # prepare frames and features
     self.frames = []
@@ -31,20 +43,24 @@ class Dataset:
     self.ground_truth_frames = []
 
   # read video file
-  # TODO: add trange
   def load_video_frames(self):
+    print(self.video_path)
     cap = cv2.VideoCapture(self.video_path)
+
     i = 0
+    pbar = tqdm(int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) + 1)
     while True:
       ret, frame = cap.read()
       if not ret:
         break
 
-      print("Loading frame: %d/%d"%(i, int(cap.get(cv2.CAP_PROP_FRAME_COUNT))))
+      pbar.set_description(f"Loading Frame {i+1}/{int(cap.get(cv2.CAP_PROP_FRAME_COUNT))}")
       self.frames.append(cv2.resize(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), (disp_W, disp_H)))
       i += 1
-    
+      pbar.update(1)
+    pbar.close()
     cap.release()
+
     return self.frames
 
   def get_ground_truth(self):
@@ -68,8 +84,8 @@ class Dataset:
   # get frames based on difference
   def extract_candidate_frames(self, threshold=20.):
     ret = []
-    for i in range(1, len(self.frames)):
-      print("Processing frame: %d/%d"%(i, len(self.frames)-1))
+    for i in (t:= trange(1, len(self.frames))):
+      t.set_description("Processing frame: %d/%d"%(i, len(self.frames)-1))
       if np.sum(np.absolute(self.frames[i] - self.frames[i-1]))/np.size(self.frames[i]) > threshold:
         ret.append(self.frames[i])
 
@@ -129,7 +145,7 @@ def get_laplacian_scores(dataset, n_images):
   variance_laplacians = []
 
   for img_idx in n_images:
-    img = data.frames[n_images[img_idx]]
+    img = dataset.frames[n_images[img_idx]]
     # print(img)
     # print(img.shape)
     img = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
@@ -210,13 +226,12 @@ def evaluate_summary(pred_keyframes, gt_keyframes, video_path):
   iou = IoU(pred_keyframes, gt_keyframes, video_path)
   return f1score, iou
 
-
-if __name__ == "__main__":
-  video_path = "../data/SumMe/videos/Air_Force_One.mp4"
-  # video_path = "../data/SumMe/videos/Base jumping.mp4"
+def run(verbose=True):
+  print("video index:", video_idx)
+  print("verbose:", verbose)
 
   # load and prepare data
-  data = Dataset(video_path)
+  data = Dataset(base_dir, video_idx)
   out_path = f"../data/OUT/{data.video_name}"
   data.load_video_frames()
 
@@ -234,19 +249,20 @@ if __name__ == "__main__":
   if not os.path.exists(out_path):
     os.makedirs(out_path)
 
-  for i in sorted(keyframes):
-    print("Writing frame:", i)
-    frame = cv2.cvtColor(data.frames_reduced[i], cv2.COLOR_BGR2RGB)
-    cv2.imwrite(out_path+f"/{i}.jpg", frame)
-    cv2.imshow("predicted keyframe", frame)
-    cv2.waitKey(0)
-  print("[+] Frames saved at", out_path)
+  if show_summaries:
+    for i in sorted(keyframes):
+      print("Writing frame:", i)
+      frame = cv2.cvtColor(data.frames_reduced[i], cv2.COLOR_BGR2RGB)
+      cv2.imwrite(out_path+f"/{i}.jpg", frame)
+      cv2.imshow("predicted keyframe", frame)
+      cv2.waitKey(0)
+    print("[+] Frames saved at", out_path)
 
-  for i in data.ground_truth_frames:
-    print("Writing frame:", i)
-    frame = cv2.cvtColor(data.frames_reduced[i], cv2.COLOR_BGR2RGB)
-    cv2.imshow("ground-truth keyframe", frame)
-    cv2.waitKey(0)
+    for i in data.ground_truth_frames:
+      print("Writing frame:", i)
+      frame = cv2.cvtColor(data.frames_reduced[i], cv2.COLOR_BGR2RGB)
+      cv2.imshow("ground-truth keyframe", frame)
+      cv2.waitKey(0)
 
   keyframes_onehot = np.zeros((len(data.frames_reduced)), dtype=int)
   for kf in keyframes:
@@ -254,9 +270,14 @@ if __name__ == "__main__":
 
   print("[+] Predicted Summary has %d keyframes"%len(keyframes))
   print("[+] Ground-Truth Summary has %d keyframes"%data.ground_truth_frames.shape[0])
-  f1score, iou = evaluate_summary(keyframes_onehot, data.ground_truth_idxs.astype(int), video_path)
+  f1score, iou = evaluate_summary(keyframes_onehot, data.ground_truth_idxs.astype(int), data.video_path)
   print("[+] F1_score:", f1score, "%")
   print("[+] IoU score:", iou, "%")
 
   cv2.destroyAllWindows()
   data.hdf.close()
+
+
+if __name__ == "__main__":
+  run(verbose=verbose)
+

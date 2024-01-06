@@ -11,8 +11,14 @@ import torch
 from model import *
 from util import *
 
-# CHANGE THESE
-video_idx = 0
+# EXAMPLE USAGE: VIDEO_IDX=2 VERBOSE=0 ./inference.py
+video_idx = int(os.getenv("VIDEO_IDX"))
+if video_idx is None:
+  video_idx = 0
+verbose = bool(int(os.getenv("VERBOSE")))
+if verbose is None:
+  verbose = True
+
 base_dir = "../data/"
 model_path = "./models/SUM-GAN-VAE.pth"
 
@@ -28,7 +34,7 @@ class SumGanVaeSummarizer:
     self.video_list = [video for video in os.listdir(self.video_dir) if video.endswith(".mp4")]
     self.preprocessed_file = base_dir + "eccv16_dataset_summe_google_pool5.h5"
 
-  def get_data(self,index):
+  def get_data(self, index):
     with h5py.File("../data/eccv16_dataset_summe_google_pool5.h5", 'r') as hdf:
       self.video_name = str(np.array(hdf[f"video_{index+1}/video_name"]))[1:].replace("\'", "")
 
@@ -52,7 +58,7 @@ class SumGanVaeSummarizer:
     print("[+] Loaded model from:", path)
 
   def extract_summary(self, img_feats):
-    img_feats = self.linear_compress(img_feats.to(device).detach()).unsqueeze(1)
+    img_feats = self.linear_compress(img_feats.to(self.device).detach()).unsqueeze(1)
     scores = self.summarizer.s_lstm(img_feats).squeeze(1).detach().cpu().numpy()
     # print("Predicted Scores:")
     # print(scores)
@@ -62,9 +68,8 @@ class SumGanVaeSummarizer:
 
     return pred_keyframes
 
-  def show_summaries(self, pred_keyframes, gt_keyframes, img_feats, video_name, use_clustering=True):
+  def generate_summaries(self, pred_keyframes, gt_keyframes, img_feats, video_name, use_clustering=False, show_summaries=True, verbose=True):
     video_path = self.video_dir + video_name + ".mp4"
-    print(video_path)
     reduced_frames, pred_frames, gt_frames = [], [], []
     
     # load (and reduce) frames into memory
@@ -86,12 +91,16 @@ class SumGanVaeSummarizer:
     pbar.close()
     cap.release()
 
+    # TODO: use temporal segmentation on video
+    # calculate the average model score on each segment
+    # get the top-score segments so that we get 15% of the video
+    # get max model score (or laplacian) as the keyframe of the segment/interval
+
     # predicted intervals => keyframes
     if use_clustering:
       # we cluster within each interval to determine shot changes, big differences between frames, etc, if any
       # NOTE: alternatively, we could use shot_change from the dataset and do it manually
       print("Clustering ...")
-      print()
       idxs = []
       tmp_frames = []
       pred_keyframe_idxs = np.zeros_like(pred_keyframes)
@@ -122,11 +131,9 @@ class SumGanVaeSummarizer:
               clusters_idx_array.append(idx_array)
 
             clusters_idx_array = np.array(clusters_idx_array)
-            print(clusters_idx_array)
             clusters = np.arange(len(clusters_idx_array))
             for cluster in clusters:
               curr_row = clusters_idx_array[cluster][0]
-              print(curr_row)
               cluster_frames = []
               for c in curr_row:
                 cluster_frames.append(tmp_frames[c])
@@ -150,10 +157,11 @@ class SumGanVaeSummarizer:
             max_idx = np.argmax(laplacian_scores)
             pred_keyframe_idxs[idx - len(tmp_frames) + max_idx] = 1
           tmp_frames = []
-    print("After processing intervals:")
-    print(pred_keyframe_idxs)
-    print("Ground-Truth Indices:")
-    print(gt_keyframes)
+    if verbose:
+      print("After processing intervals:")
+      print(pred_keyframe_idxs)
+      print("Ground-Truth Indices:")
+      print(gt_keyframes)
 
     # frame idxs => frames
     for idx, frame in enumerate(reduced_frames):
@@ -165,15 +173,16 @@ class SumGanVaeSummarizer:
     print("Number of frames in predicted summary:", len(pred_frames))
     print("Number of frames in ground-truth summary:", len(gt_frames))
 
-    for frame in pred_frames:
-      cv2.imshow("Model-Predicted Summary", frame)
-      cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    if show_summaries:
+      for frame in pred_frames:
+        cv2.imshow("Model-Predicted Summary", frame)
+        cv2.waitKey(0)
+      cv2.destroyAllWindows()
 
-    for frame in gt_frames:
-      cv2.imshow("Ground-Truth Summary", frame)
-      cv2.waitKey(0)
-    cv2.destroyAllWindows()
+      for frame in gt_frames:
+        cv2.imshow("Ground-Truth Summary", frame)
+        cv2.waitKey(0)
+      cv2.destroyAllWindows()
 
     return pred_keyframe_idxs, gt_keyframes, pred_frames, gt_frames
 
@@ -206,27 +215,38 @@ def evaluate(pred_idxs, gt_idxs, pred_keyframes, gt_keyframes):
   print("F1 score:", f1_score(pred_idxs, gt_idxs), "%")
   print("IoU score:", IoU(pred_keyframes, gt_keyframes), "%")
 
+def inference(verbose=True):
+  print("video index:", video_idx)
+  print("verbose:", verbose)
 
-if __name__ == "__main__":
   device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
   print("[+] Using device: ", device)
   summarizer = SumGanVaeSummarizer(base_dir, device)
 
   data = summarizer.get_data(video_idx)
-  print(data)
+  if verbose:
+    print(data)
 
   img_feats = data["features"]
   gt_summary = data["gtsummary"]
   video_name = data["video_name"]
+  print("Processing video:", video_name)
 
   summarizer.build_model()
   summarizer.load_model(model_path)
-  print(summarizer.model)
+  if verbose:
+    print(summarizer.model)
 
   pred_keyframes = summarizer.extract_summary(img_feats)
-  print("Model-Predicted Summary:")
-  print(pred_keyframes)
-  pred_keyframe_idxs, gt_keyframes, pred_frames, gt_frames = summarizer.show_summaries(pred_keyframes, gt_summary, img_feats.detach().cpu().numpy(), video_name)#, use_clustering=False)
+  if verbose:
+    print("Model-Predicted Summary:")
+    print(pred_keyframes)
+  pred_keyframe_idxs, gt_keyframes, pred_frames, gt_frames = summarizer.generate_summaries(pred_keyframes, gt_summary, img_feats.detach().cpu().numpy(), video_name, show_summaries=False, verbose=verbose)
 
   # TODO: also evaluate to compare with paper (ensure training is done well)
   evaluate(pred_keyframe_idxs, gt_keyframes.detach().cpu().numpy().astype(int), np.array(pred_frames), np.array(gt_frames))
+
+
+if __name__ == "__main__":
+  inference(verbose=verbose)
+

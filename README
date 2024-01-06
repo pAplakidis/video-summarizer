@@ -1,0 +1,13 @@
+Video Summarization
+
+2 methods:
+- using clustering (HDBSCAN)
+- using Neural Network (LSTM GAN)
+
+Usage:
+./benchmark.py <video_index (0, 1, etc)>
+
+alternatively you can check out usage in
+* clustering/extract_keyframes.py
+* sum_gan_vae/inference.py
+

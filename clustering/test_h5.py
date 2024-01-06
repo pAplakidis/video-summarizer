@@ -16,8 +16,11 @@ with h5py.File("../data/eccv16_dataset_summe_google_pool5.h5", 'r') as hdf:
   print(gtscore)
   print("Ground Truth Summary:", gtsummary.shape)
   print(gtsummary)
+  print(gtsummary.shape)
 
   user_summary = np.array(hdf["video_2" + "/user_summary"])
+  print("User Summary")
+  print(user_summary)
   print(user_summary.shape)
 
   change_points = np.array(hdf["video_2" + "/change_points"])
