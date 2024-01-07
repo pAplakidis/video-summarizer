@@ -5,7 +5,7 @@ Video Summarization
 - using Neural Network (LSTM GAN)
 
 Usage:
-./benchmark.py <video_index (0, 1, etc)>
+./benchmark.py
 
 alternatively you can check out usage in
 * clustering/extract_keyframes.py
