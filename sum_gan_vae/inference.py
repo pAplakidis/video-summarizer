@@ -69,7 +69,7 @@ class SumGanVaeSummarizer:
 
     return pred_keyframes, scores
 
-  def generate_summaries(self, scores, pred_keyframes, gt_keyframes, img_feats, video_name, use_clustering=False, show_summaries=True, verbose=True, use_laplacian=False):
+  def generate_summaries(self, scores, pred_keyframes, gt_keyframes, img_feats, video_name, use_clustering=True, show_summaries=True, verbose=True, use_laplacian=False):
     video_path = self.video_dir + video_name + ".mp4"
     reduced_frames, pred_frames, gt_frames = [], [], []
     
@@ -138,8 +138,13 @@ class SumGanVaeSummarizer:
               cluster_frames = []
               for c in curr_row:
                 cluster_frames.append(tmp_frames[c])
-              laplacian_scores = get_laplacian_scores(cluster_frames)
-              interval_idx = curr_row[curr_row[np.argmax(laplacian_scores)]]
+              if use_laplacian:
+                laplacian_scores = get_laplacian_scores(cluster_frames)
+                max_idx = np.argmax(laplacian_scores)
+              else:
+                tmp_scores = scores[idx-len(tmp_frames):idx]
+                max_idx = np.argmax(tmp_scores)
+              interval_idx = curr_row[curr_row[max_idx]]
               pred_keyframe_idxs[idx - len(tmp_frames) + interval_idx] = 1
 
           idxs = []
@@ -248,7 +253,7 @@ def inference(verbose=True):
   if verbose:
     print("Model-Predicted Summary:")
     print(pred_keyframes)
-  pred_keyframe_idxs, gt_keyframes, pred_frames, gt_frames = summarizer.generate_summaries(scores, pred_keyframes, gt_summary, img_feats.detach().cpu().numpy(), video_name, show_summaries=False, verbose=verbose)
+  pred_keyframe_idxs, gt_keyframes, pred_frames, gt_frames = summarizer.generate_summaries(scores, pred_keyframes, gt_summary, img_feats.detach().cpu().numpy(), video_name, show_summaries=verbose, verbose=verbose)
 
   evaluate(pred_keyframe_idxs, gt_keyframes.detach().cpu().numpy().astype(int), np.array(pred_frames), np.array(gt_frames))
 

@@ -19,7 +19,7 @@ verbose = bool(int(os.getenv("VERBOSE")))
 if verbose is None:
   verbose = True
 
-show_summaries = False #True
+show_summaries = verbose
 base_dir = "../data/"
 
 W = H = 224   # 32
